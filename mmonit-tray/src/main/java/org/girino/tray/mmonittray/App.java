@@ -54,7 +54,7 @@ public class App
 		ret.put(Color.RED, makeImage(Color.RED));
 		ret.put(Color.GREEN, makeImage(Color.GREEN));
 		ret.put(Color.GRAY, makeImage(Color.GRAY));
-		ret.put(Color.YELLOW, makeImage(Color.YELLOW));
+		ret.put(Color.ORANGE, makeImage(Color.ORANGE));
 		ret.put(Color.BLUE, makeImage(Color.BLUE));
 
 		return ret;
@@ -126,7 +126,7 @@ public class App
 				try {
 					Color status = consumer.getWorstStatus();
 					trayIcon.setImage(COLOR_MAP.get(status));
-				} catch (URISyntaxException | IOException e) {
+				} catch (Exception e) {
 					e.printStackTrace();
 					trayIcon.setImage(COLOR_MAP.get(Color.BLUE));
 				}
@@ -150,7 +150,6 @@ public class App
 
 	public static void main( String[] args ) throws IOException, URISyntaxException
     {
-		
         new App();
     }
 }

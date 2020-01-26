@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -27,9 +28,9 @@ import com.google.gson.JsonParser;
 
 public class MMonitConsumer {
 
-	String server = "https://graphs.girino.org:8443";
-	String user = "validator";
-	String password = "jMPt0MiKa95h9PrXg";
+	String server;
+	String user;
+	String password;
 	boolean isLoggedIn = false;
 	BasicCookieStore cookieStore = new BasicCookieStore();
 	
@@ -133,13 +134,12 @@ public class MMonitConsumer {
 		return root.getAsJsonObject();
 	}
 	
-	final static Color[] COLORS = {Color.RED, Color.ORANGE, Color.GREEN, Color.GRAY};
-	List<Color> getStatusList() throws URISyntaxException, IOException {
+	List<Integer> getStatusList() throws URISyntaxException, IOException {
 		JsonObject j = getStatusListAsJsonObject();
 		if (!j.has("records")) {
 			throw new RuntimeException("No records present.");
 		}
-		List<Color> ret = new ArrayList<Color>();
+		List<Integer> ret = new ArrayList<Integer>();
 		JsonArray records = j.getAsJsonArray("records");
 		records.forEach(new Consumer<JsonElement>() {
 			@Override
@@ -148,23 +148,21 @@ public class MMonitConsumer {
 				if (!record.has("led")) {
 					throw new RuntimeException("One Record does not contain leds.");
 				} else {
-					ret.add(COLORS[record.getAsJsonPrimitive("led").getAsInt()]);
+					ret.add(record.getAsJsonPrimitive("led").getAsInt());
 				}
 			}
 		});
 		return ret;
 	}
-	
+
+	final static Color[] COLORS = {Color.RED, Color.ORANGE, Color.GREEN, Color.GRAY};
 	Color getWorstStatus() throws URISyntaxException, IOException {
-		Set<Color> l = new HashSet<Color>(getStatusList());
-		if (l.contains(Color.RED)) {
-			return Color.RED;
-		} else if (l.contains(Color.YELLOW)) {
-			return Color.YELLOW;
-		} else if (l.contains(Color.GRAY)) {
-			return Color.GRAY;
+		Set<Integer> l = new HashSet<Integer>(getStatusList());
+		l.remove(2);
+		if (l.isEmpty()) {
+			return COLORS[2];
 		}
-		return Color.GREEN;
+		return COLORS[Collections.min(l)];
 	}
 
 }
