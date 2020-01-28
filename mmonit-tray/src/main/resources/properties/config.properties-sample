@@ -1,3 +1,32 @@
 server = https://mmonit.yourdomain.com:8443
-user = admin
-password = password
+; Valid options are FORM and BASIC
+auth.type = FORM
+
+; for basic auth you should use the format https://user:password@server:port
+; form auth, prefix the input ids with "auth.form."
+auth.form.z_username = user
+auth.form.z_password = password
+auth.form.z_csrf_protection = off
+
+; pages for initializing, login and API data. Basic uses only API
+path.init = /index.csp
+path.login = /z_security_check
+path.logout = /login/logout.csp
+;path.api = /see/api/examples/below
+
+; Full host status list API on mmonit
+;path.api = /status/hosts/list
+; colors and JQ queries
+;query.0.RED = [ .records[].led | select( . == 0 ) ] | length
+;query.1.ORANGE = [ .records[].led | select( . == 1 ) ] | length
+;query.2.GRAY = [ .records[].led | select( . == 3 ) ] | length
+;query.3.GREEN = [ .records[].led | select( . == 2 ) ] | length
+
+; Hosts summary API on mmonit
+path.api = /status/hosts/summary 
+query.0.RED = .status[] | select( .label == "failed" ) | .data
+query.1.YELLOW = .status[] | select( .label == "services failed" ) | .data
+query.2.ORANGE = .status[] | select( .label == "some services failed/unmonitored" ) | .data
+query.3.GRAY = .status[] | select( .label == "inactive" ) | .data
+query.4.WHITE = .status[] | select( .label == "ignored" ) | .data
+query.5.GREEN = .status[] | select( .label == "ok" ) | .data

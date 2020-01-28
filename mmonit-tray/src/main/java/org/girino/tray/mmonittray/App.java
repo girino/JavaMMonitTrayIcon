@@ -2,6 +2,7 @@ package org.girino.tray.mmonittray;
 
 import java.awt.AWTException;
 import java.awt.Color;
+import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Image;
 import java.awt.MenuItem;
@@ -14,11 +15,18 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.stream.Collectors;
 
 import javax.swing.ImageIcon;
 
@@ -35,29 +43,21 @@ public class App
 	Timer timer = new Timer();
 	MMonitConsumer consumer;
 	final SystemTray tray = SystemTray.getSystemTray();
-	
+	List<Pair<Color, String>> queries;
 
-	static final Map<Color,Image> COLOR_MAP = makeColorImageMap();
-	
+	private static Map<Color, Image> imageCache = new HashMap<Color, Image>();  
 	static Image makeImage(Color status) {
-        Image i = new BufferedImage(32, 32, BufferedImage.TYPE_INT_ARGB);
-        Graphics g = i.getGraphics(); 
-        g.setColor(status);
-        g.fillOval(0, 0, 16, 16);
-        return i;
-	}
-	
-	static Map<Color,Image> makeColorImageMap() {
-		
-		Map<Color,Image> ret = new HashMap<Color, Image>();
-		
-		ret.put(Color.RED, makeImage(Color.RED));
-		ret.put(Color.GREEN, makeImage(Color.GREEN));
-		ret.put(Color.GRAY, makeImage(Color.GRAY));
-		ret.put(Color.ORANGE, makeImage(Color.ORANGE));
-		ret.put(Color.BLUE, makeImage(Color.BLUE));
-
-		return ret;
+		// gets tray icon preffered size
+		Dimension d = SystemTray.getSystemTray().getTrayIconSize();
+		if (!imageCache.containsKey(status)) {
+	        Image image = new BufferedImage(d.height, d.width, BufferedImage.TYPE_INT_ARGB);
+	        Graphics g = image.getGraphics(); 
+	        g.setColor(status);
+	        g.fillOval(0, 0, d.height, d.width);
+	        
+	        imageCache.put(status, image);
+		}
+		return imageCache.get(status);
 	}
 	
 	public App() throws IOException, URISyntaxException {
@@ -66,13 +66,58 @@ public class App
 		p.load(App.class.getResourceAsStream("/properties/config.properties"));
 		
 		String server = p.getProperty("server", "https://mmonit.example.com");
-		String user = p.getProperty("user", "admin");
-		String password = p.getProperty("password", "password");
-
-		consumer = new MMonitConsumer(server, user, password);
+		
+		// List of pages
+		Map<String,String> pageMap = toMap(getPropertiesAsList(p, "path."));
+		
+		// JQ queries
+		queries = getPropertiesAsList(p, "query.").stream()
+				.sorted((a,b) -> a.getKey().compareTo(b.getKey()))
+				.map((q) -> new Pair<Color, String>(getColorByName(q.getKey(), true), q.getValue()))
+				.collect(Collectors.toList());
+		
+		List<Pair<String, String>> authStrings = new ArrayList<Pair<String,String>>();
+		List<String> requiredPages = Arrays.asList("api");
+		String authType = p.getProperty("auth.type", "BASIC"); 
+		if (authType.equalsIgnoreCase("FORM")) {
+			authStrings = getPropertiesAsList(p, "auth.form.");
+			requiredPages = Arrays.asList("login", "logout", "init", "api");
+		}
+		
+		if (!pageMap.keySet().containsAll(requiredPages)) {
+			throw new RuntimeException("Missing requeired pages.");
+		}
+		
+		consumer = new MMonitConsumer(server, authType, authStrings, pageMap);
 		
 		start();
 		createTray();
+	}
+
+	private Color getColorByName(String colorName, boolean removeNumberPrefix) {
+		
+		if (removeNumberPrefix) {
+			colorName = colorName.replaceFirst("^\\d+\\.", "");
+		}
+		
+		try {
+			return (Color) Color.class.getDeclaredField(colorName).get(null);
+		} catch (IllegalArgumentException | IllegalAccessException | NoSuchFieldException | SecurityException e) {
+			e.printStackTrace();
+			throw new RuntimeException(e);
+		}
+	}
+
+	private <A, B> Map<A, B> toMap(List<Pair<A, B>> pages) {
+		return pages.stream().collect(Collectors.toMap(Pair<A, B>::getKey, Pair<A, B>::getValue));
+	}
+
+	private List<Pair<String, String>> getPropertiesAsList(Properties p, String prefix) {
+		
+		return p.keySet().stream()
+				.filter((key) -> ((String)key).startsWith(prefix))
+				.map( (key) -> new Pair<String, String>( ((String)key).substring(prefix.length()), p.getProperty((String)key)) )
+				.collect(Collectors.toList());
 	}
 	
     //Obtain the image URL
@@ -94,7 +139,7 @@ public class App
             return;
         }
         final PopupMenu popup = new PopupMenu();
-        trayIcon = new TrayIcon(COLOR_MAP.get(Color.GRAY));
+        trayIcon = new TrayIcon(makeImage(Color.BLUE));
        
         // Create a pop-up menu components
         MenuItem exitItem = new MenuItem("Exit");
@@ -124,11 +169,11 @@ public class App
 			@Override
 			public void run() {
 				try {
-					Color status = consumer.getWorstStatus();
-					trayIcon.setImage(COLOR_MAP.get(status));
+					Color status = consumer.getWorstStatus(queries, Color.BLUE);
+					trayIcon.setImage(makeImage(status));
 				} catch (Exception e) {
 					e.printStackTrace();
-					trayIcon.setImage(COLOR_MAP.get(Color.BLUE));
+					trayIcon.setImage(makeImage(Color.BLUE));
 				}
 			}
 		}, 0, 10000);

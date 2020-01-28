@@ -5,11 +5,8 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
-import java.util.function.Consumer;
+import java.util.Map;
 
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -21,23 +18,28 @@ import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import net.thisptr.jackson.jq.BuiltinFunctionLoader;
+import net.thisptr.jackson.jq.JsonQuery;
+import net.thisptr.jackson.jq.Scope;
+import net.thisptr.jackson.jq.Versions;
 
 public class MMonitConsumer {
 
 	String server;
-	String user;
-	String password;
+	String authType;
+	List<Pair<String, String>> authStrings;
+	Map<String, String> pageMap;
 	boolean isLoggedIn = false;
 	BasicCookieStore cookieStore = new BasicCookieStore();
 	
-	public MMonitConsumer(String server, String user, String password) {
+	public MMonitConsumer(String server, String authType, List<Pair<String, String>> authStrings, Map<String, String> pageMap) {
 		this.server = server;
-		this.user = user;
-		this.password = password;
+		this.authType = authType;
+		this.authStrings = authStrings;
+		this.pageMap = pageMap;
 		isLoggedIn = false;
 	}
 
@@ -47,7 +49,7 @@ public class MMonitConsumer {
 			return;
 		}
 		
-		URL logoutUrl = new URL(server + "/login/logout.csp");
+		URL logoutUrl = new URL(server + pageMap.get("logout"));
 
 		CloseableHttpClient httpclient = HttpClients.custom().setDefaultCookieStore(cookieStore).build();
 		try {
@@ -67,37 +69,43 @@ public class MMonitConsumer {
 	}
 
 	void logIn() throws URISyntaxException, ClientProtocolException, IOException {
-		URL main = new URL(server + "/index.csp");
-		URL loginUrl = new URL(server + "/z_security_check");
 
-		CloseableHttpClient httpclient = HttpClients.custom().setDefaultCookieStore(cookieStore).build();
-		try {
-			HttpGet sessionGet = new HttpGet(main.toURI());
-			try (CloseableHttpResponse response = httpclient.execute(sessionGet)) {
-				int status = response.getStatusLine().getStatusCode(); 
-				if ( status == 200 ) {
-					EntityUtils.consume(response.getEntity());
-				} else {
-					throw new RuntimeException("Bad response status code: " + status);
+		// Basic Auth doesnt need login.
+		if (authType.equalsIgnoreCase("FORM")) {
+			URL main = new URL(server + pageMap.get("init"));
+			URL loginUrl = new URL(server + pageMap.get("login"));
+	
+			CloseableHttpClient httpclient = HttpClients.custom().setDefaultCookieStore(cookieStore).build();
+			try {
+				HttpGet sessionGet = new HttpGet(main.toURI());
+				try (CloseableHttpResponse response = httpclient.execute(sessionGet)) {
+					int status = response.getStatusLine().getStatusCode(); 
+					if ( status == 200 ) {
+						EntityUtils.consume(response.getEntity());
+					} else {
+						throw new RuntimeException("Bad response status code: " + status);
+					}
 				}
-			}
-
-			HttpUriRequest loginRequest = RequestBuilder.post().setUri(loginUrl.toURI()).addParameter("z_username", user)
-					.addParameter("z_password", password)
-					.addParameter("z_csrf_protection", "off")
-					.build();
-			
-			try (CloseableHttpResponse response = httpclient.execute(loginRequest)) {
-				int status = response.getStatusLine().getStatusCode(); 
-				if ( status == 200 || status == 302 ) {
-					EntityUtils.consume(response.getEntity());
-				} else {
-					throw new RuntimeException("Bad response status code: " + status);
+	
+				RequestBuilder builder = RequestBuilder.post().setUri(loginUrl.toURI());
+				for (Pair<String, String> pair : authStrings) {
+					builder.addParameter(pair.getKey(), pair.getValue());
 				}
+				HttpUriRequest loginRequest = builder.build();
+				
+				
+				try (CloseableHttpResponse response = httpclient.execute(loginRequest)) {
+					int status = response.getStatusLine().getStatusCode(); 
+					if ( status == 200 || status == 302 ) {
+						EntityUtils.consume(response.getEntity());
+					} else {
+						throw new RuntimeException("Bad response status code: " + status);
+					}
+				}
+	
+			} finally {
+				httpclient.close();
 			}
-
-		} finally {
-			httpclient.close();
 		}
 		isLoggedIn = true;
 	}
@@ -108,7 +116,7 @@ public class MMonitConsumer {
 			logIn();
 		}
 		
-		URL logoutUrl = new URL(server + "/status/hosts/list");
+		URL logoutUrl = new URL(server + pageMap.get("api"));
 
 		CloseableHttpClient httpclient = HttpClients.custom().setDefaultCookieStore(cookieStore).build();
 		try {
@@ -128,41 +136,43 @@ public class MMonitConsumer {
 		
 	}
 	
-	JsonObject getStatusListAsJsonObject() throws URISyntaxException, IOException {
-		String jsonString = getStatusListAsString();
-		JsonElement root = JsonParser.parseString(jsonString);
-		return root.getAsJsonObject();
-	}
-	
-	List<Integer> getStatusList() throws URISyntaxException, IOException {
-		JsonObject j = getStatusListAsJsonObject();
-		if (!j.has("records")) {
-			throw new RuntimeException("No records present.");
-		}
-		List<Integer> ret = new ArrayList<Integer>();
-		JsonArray records = j.getAsJsonArray("records");
-		records.forEach(new Consumer<JsonElement>() {
-			@Override
-			public void accept(JsonElement t) {
-				JsonObject record = t.getAsJsonObject();
-				if (!record.has("led")) {
-					throw new RuntimeException("One Record does not contain leds.");
-				} else {
-					ret.add(record.getAsJsonPrimitive("led").getAsInt());
-				}
-			}
-		});
-		return ret;
+	private static final ObjectMapper MAPPER = new ObjectMapper();
+	private static final Scope rootScope = Scope.newEmptyScope();
+	static {
+		BuiltinFunctionLoader.getInstance().loadFunctions(Versions.JQ_1_6, rootScope);
 	}
 
-	final static Color[] COLORS = {Color.RED, Color.ORANGE, Color.GREEN, Color.GRAY};
-	Color getWorstStatus() throws URISyntaxException, IOException {
-		Set<Integer> l = new HashSet<Integer>(getStatusList());
-		l.remove(2);
-		if (l.isEmpty()) {
-			return COLORS[2];
+	JsonNode getStatusListAsJsonNode() throws URISyntaxException, IOException {
+		String jsonString = getStatusListAsString();
+		JsonNode root = MAPPER.readTree(jsonString);
+		return root;
+	}
+	
+	JsonNode getJQResult(String query, String json) throws IOException {
+		JsonQuery q = JsonQuery.compile(query, Versions.JQ_1_6);
+		JsonNode in = MAPPER.readTree(json);
+
+		final List<JsonNode> out = new ArrayList<JsonNode>(1);
+		q.apply(rootScope, in, out::add);
+		
+		return out.get(0);
+	}
+	
+	int getJQResultAsIt(String query, String json) throws IOException {
+		JsonNode n = getJQResult(query, json);
+		return n.asInt();
+	}
+
+	public Color getWorstStatus(List<Pair<Color, String>> queries, Color defaultColor) throws URISyntaxException, IOException {
+		
+		String json = getStatusListAsString();
+		
+		for (Pair<Color, String> pair : queries) {
+			if (getJQResultAsIt(pair.getValue(), json) > 0) {
+				return pair.getKey();
+			}
 		}
-		return COLORS[Collections.min(l)];
+		return defaultColor;
 	}
 
 }
