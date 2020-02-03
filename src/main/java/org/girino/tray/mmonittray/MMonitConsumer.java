@@ -1,10 +1,18 @@
+/*******************************************************************************
+ * Copyright (c) 2019 by Girino Vey.
+ * 
+ * Permission to use this software, modify and distribute it, or parts of it, is 
+ * granted to everyone who wishes provided that the above copyright notice 
+ * is kept or the conditions of the full version of this license are met.
+ * 
+ * See Full license at: https://girino.org/license/
+ ******************************************************************************/
 package org.girino.tray.mmonittray;
 
 import java.awt.Color;
 import java.io.IOException;
 import java.net.URISyntaxException;
 import java.net.URL;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -17,14 +25,6 @@ import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import net.thisptr.jackson.jq.BuiltinFunctionLoader;
-import net.thisptr.jackson.jq.JsonQuery;
-import net.thisptr.jackson.jq.Scope;
-import net.thisptr.jackson.jq.Versions;
 
 public class MMonitConsumer {
 
