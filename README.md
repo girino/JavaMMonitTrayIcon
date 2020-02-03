@@ -1,5 +1,5 @@
 # JavaMMonitTrayIcon
-When I started this project, my idea was to watch my servers, which use mmonit asmonitoring tool, from a single flag in the tray bar. This evolved to a much more generic tool, that uses JQ language to parse JSON from any API and is capable of generic authentication. I still use it to monitor my MMonit servers, but itis now much easier to configure and much more useful for many other people.
+When I started this project, my idea was to watch my servers, which use mmonit as monitoring tool, from a single flag in the tray bar. This evolved to a much more generic tool, that uses JQ language to parse JSON from any API and is capable of generic authentication. I still use it to monitor my MMonit servers, but it is now much easier to configure and much more useful for many other people.
 
 ## Building
 
@@ -23,7 +23,7 @@ $ java -jar mmonit-tray-0.0.1-SNAPSHOT-jar-with-dependencies.jar
 
 ## Configuring
 
-When run for the first time, the settings window will be automatically shown. You need to fill in at least the server url and the fields necessary for authentication. If using "Basic" authentication, use the UEL syntax for user and password:
+When run for the first time, the settings window will be automatically shown. You need to fill in at least the server url and the fields necessary for authentication. If using "Basic" authentication, use the URL syntax for user and password:
 
 ``https://user:password@www.example.com``
 
@@ -72,5 +72,5 @@ This software is licensed under my own "Girino's Anarchist License", available i
 
 # Disclaimer
 
-I  Did this software for my own use and am sharing it "as is", so please be patient if there are any bugs. Or better yet, fix them for me. I'd be happy to incorporate any code you submit, as long as it works and is well written.
+I wrote this software for my own use and am sharing it "as is", so please be patient if there are any bugs. Or better yet, fix them for me. I'd be happy to incorporate any code you submit, as long as it works and is well written.
 
