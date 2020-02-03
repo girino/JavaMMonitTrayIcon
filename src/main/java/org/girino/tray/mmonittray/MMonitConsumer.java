@@ -136,43 +136,16 @@ public class MMonitConsumer {
 		
 	}
 	
-	private static final ObjectMapper MAPPER = new ObjectMapper();
-	private static final Scope rootScope = Scope.newEmptyScope();
-	static {
-		BuiltinFunctionLoader.getInstance().loadFunctions(Versions.JQ_1_6, rootScope);
-	}
-
-	JsonNode getStatusListAsJsonNode() throws URISyntaxException, IOException {
-		String jsonString = getStatusListAsString();
-		JsonNode root = MAPPER.readTree(jsonString);
-		return root;
-	}
-	
-	JsonNode getJQResult(String query, String json) throws IOException {
-		JsonQuery q = JsonQuery.compile(query, Versions.JQ_1_6);
-		JsonNode in = MAPPER.readTree(json);
-
-		final List<JsonNode> out = new ArrayList<JsonNode>(1);
-		q.apply(rootScope, in, out::add);
-		
-		return out.get(0);
-	}
-	
-	int getJQResultAsIt(String query, String json) throws IOException {
-		JsonNode n = getJQResult(query, json);
-		return n.asInt();
-	}
-
 	public Color getWorstStatus(List<Pair<Color, String>> queries, Color defaultColor) throws URISyntaxException, IOException {
 		
 		String json = getStatusListAsString();
 		
 		for (Pair<Color, String> pair : queries) {
-			if (getJQResultAsIt(pair.getValue(), json) > 0) {
+			if (JQParser.getInstance().getJQResultAsIt(pair.getValue(), json) > 0) {
 				return pair.getKey();
 			}
 		}
 		return defaultColor;
 	}
-
+	
 }

@@ -16,7 +16,7 @@ path.logout = /login/logout.csp
 
 ; Full host status list API on mmonit
 ;path.api = /status/hosts/list
-; colors and JQ queries
+; colors and JQ queries. Colors can be accepted names, or html hex codes, like #FFFFFF
 ;query.0.RED = [ .records[].led | select( . == 0 ) ] | length
 ;query.1.ORANGE = [ .records[].led | select( . == 1 ) ] | length
 ;query.2.GRAY = [ .records[].led | select( . == 3 ) ] | length

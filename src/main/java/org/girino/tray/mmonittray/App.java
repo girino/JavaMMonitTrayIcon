@@ -2,6 +2,7 @@ package org.girino.tray.mmonittray;
 
 import java.awt.AWTException;
 import java.awt.Color;
+import java.awt.Desktop;
 import java.awt.Dimension;
 import java.awt.Graphics;
 import java.awt.Image;
@@ -12,25 +13,30 @@ import java.awt.TrayIcon;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.Set;
-import java.util.Timer;
 import java.util.TimerTask;
 import java.util.stream.Collectors;
 
 import javax.swing.ImageIcon;
+import javax.swing.JOptionPane;
+import javax.swing.Timer;
 
 import org.apache.http.client.ClientProtocolException;
+
+import net.harawata.appdirs.AppDirs;
+import net.harawata.appdirs.AppDirsFactory;
 
 /**
  * Hello world!
@@ -40,10 +46,11 @@ public class App
 {
 	
 	TrayIcon trayIcon;
-	Timer timer = new Timer();
+	Timer timer;
 	MMonitConsumer consumer;
 	final SystemTray tray = SystemTray.getSystemTray();
 	List<Pair<Color, String>> queries;
+	Properties properties;
 
 	private static Map<Color, Image> imageCache = new HashMap<Color, Image>();  
 	static Image makeImage(Color status) {
@@ -62,25 +69,57 @@ public class App
 	
 	public App() throws IOException, URISyntaxException {
 		
-		Properties p = new Properties();
-		p.load(App.class.getResourceAsStream("/properties/config.properties"));
+		loadPropertiesFromFile();
 		
-		String server = p.getProperty("server", "https://mmonit.example.com");
+		updateFromProperties();
+
+		createTray();
+		start();
+	}
+
+	AppDirs appDirs = AppDirsFactory.getInstance();
+	private boolean propertiesLoaded;
+	
+	private void loadPropertiesFromFile() throws IOException {
+		properties = new Properties();
+		
+		// check if there is a local file
+		File file = getPropertiesFileLocation();
+		
+		if (file.exists()) {
+			properties.load(new FileReader(file));
+			propertiesLoaded = true;
+		} else {
+			properties.load(App.class.getResourceAsStream("/properties/config.properties-sample"));
+			openSettings();
+			propertiesLoaded = false;
+		}
+	}
+
+	private File getPropertiesFileLocation() {
+		String path = appDirs.getUserConfigDir(null, null, "JavaMMonitTrayIcon");
+		String fileName = path + File.separator + "config.properties";
+		File file = new File(fileName);
+		return file;
+	}
+
+	private void updateFromProperties() {
+		String server = properties.getProperty("server", "https://mmonit.example.com");
 		
 		// List of pages
-		Map<String,String> pageMap = toMap(getPropertiesAsList(p, "path."));
+		Map<String,String> pageMap = toMap(getPropertiesAsList(properties, "path."));
 		
 		// JQ queries
-		queries = getPropertiesAsList(p, "query.").stream()
+		queries = getPropertiesAsList(properties, "query.").stream()
 				.sorted((a,b) -> a.getKey().compareTo(b.getKey()))
 				.map((q) -> new Pair<Color, String>(getColorByName(q.getKey(), true), q.getValue()))
 				.collect(Collectors.toList());
 		
 		List<Pair<String, String>> authStrings = new ArrayList<Pair<String,String>>();
 		List<String> requiredPages = Arrays.asList("api");
-		String authType = p.getProperty("auth.type", "BASIC"); 
+		String authType = properties.getProperty("auth.type", "BASIC"); 
 		if (authType.equalsIgnoreCase("FORM")) {
-			authStrings = getPropertiesAsList(p, "auth.form.");
+			authStrings = getPropertiesAsList(properties, "auth.form.");
 			requiredPages = Arrays.asList("login", "logout", "init", "api");
 		}
 		
@@ -89,9 +128,6 @@ public class App
 		}
 		
 		consumer = new MMonitConsumer(server, authType, authStrings, pageMap);
-		
-		start();
-		createTray();
 	}
 
 	private Color getColorByName(String colorName, boolean removeNumberPrefix) {
@@ -101,8 +137,12 @@ public class App
 		}
 		
 		try {
-			return (Color) Color.class.getDeclaredField(colorName).get(null);
-		} catch (IllegalArgumentException | IllegalAccessException | NoSuchFieldException | SecurityException e) {
+			if (colorName.startsWith("#")) {
+				return Color.decode(colorName);
+			} else {
+				return (Color) Color.class.getDeclaredField(colorName).get(null);
+			}
+		} catch (IllegalArgumentException | IllegalAccessException | NoSuchFieldException | SecurityException  e) {
 			e.printStackTrace();
 			throw new RuntimeException(e);
 		}
@@ -150,10 +190,31 @@ public class App
 				App.this.stop();
 			}
 		});
+        MenuItem settingsItem = new MenuItem("Settings");
+        settingsItem.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				App.this.openSettings();
+			}
+		});
        
         //Add components to pop-up menu
         popup.add(exitItem);
+        popup.add(settingsItem);
         trayIcon.setPopupMenu(popup);
+        trayIcon.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+				    try {
+						Desktop.getDesktop().browse(new URI(consumer.server));
+					} catch (IOException | URISyntaxException e1) {
+						e1.printStackTrace();
+						JOptionPane.showMessageDialog(null, "Cannot open URL: " + e1.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+					}
+				}
+			}
+		});
         
         try {
             tray.add(trayIcon);
@@ -163,25 +224,47 @@ public class App
         }
 	}
 	
-	protected void start() throws ClientProtocolException, URISyntaxException, IOException {
-		consumer.logIn();
-		timer.scheduleAtFixedRate(new TimerTask() {
+	protected void openSettings() {
+		ConfigurationFrame frame = new ConfigurationFrame(properties, new Callback() {
 			@Override
-			public void run() {
+			public void onSave(Properties p) {
+				properties = p;
+				updateFromProperties();
+				propertiesLoaded = true;
 				try {
-					Color status = consumer.getWorstStatus(queries, Color.BLUE);
-					trayIcon.setImage(makeImage(status));
-				} catch (Exception e) {
+					saveProperties(p);
+				} catch (IOException e) {
 					e.printStackTrace();
-					trayIcon.setImage(makeImage(Color.BLUE));
+	                JOptionPane.showMessageDialog(null, "Error Saving Properties File: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
 				}
+				// run now;
+				timer.restart();
 			}
-		}, 0, 10000);
+		});
+		frame.setVisible(true);
+
+	}
+
+	private void saveProperties(Properties p) throws IOException {
+		File file = getPropertiesFileLocation();
+		file.getParentFile().mkdirs();
+		FileWriter writer = new FileWriter(file);
+		p.store(writer, "Settings for JavaMMonitTray v. 0.1");
+	}
+
+	
+	
+	protected void start() throws ClientProtocolException, URISyntaxException, IOException {
+		
+		timer = new javax.swing.Timer(0, (ae) -> { consume(); });
+		timer.setDelay(10000);
+		timer.setRepeats(true);
+		timer.start();
 	}
 	
     protected void stop() {
     	try {
-	    	timer.cancel();
+	    	timer.stop();
 			try {
 				consumer.logout();
 			} catch (URISyntaxException | IOException e) {
@@ -190,6 +273,20 @@ public class App
 			tray.remove(trayIcon);
     	} finally {
     		System.exit(0); // force quit
+		}
+	}
+
+	private synchronized void consume() {
+		try {
+			if (propertiesLoaded) {
+				Color status = consumer.getWorstStatus(queries, Color.BLUE);
+				trayIcon.setImage(makeImage(status));
+			} else {
+				System.err.println("waiting for properties");
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			trayIcon.setImage(makeImage(Color.BLACK)); // network error = black
 		}
 	}
 
