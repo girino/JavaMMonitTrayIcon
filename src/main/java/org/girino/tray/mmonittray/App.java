@@ -205,10 +205,26 @@ public class App
 				App.this.openSettings();
 			}
 		});
+
+        MenuItem aboutItem = new MenuItem("About");
+        aboutItem.addActionListener(new ActionListener() {
+			@Override
+			public void actionPerformed(ActionEvent e) {
+				JOptionPane.showMessageDialog(null, " Copyright (c) 2019 by Girino Vey.\r\n" + 
+						" \r\n" + 
+						" Permission to use this software, modify and distribute it, or parts of it, is \r\n" + 
+						" granted to everyone who wishes provided that the above copyright notice \r\n" + 
+						" is kept or the conditions of the full version of this license are met.\r\n" + 
+						" \r\n" + 
+						" See Full license at: https://girino.org/license/", "About", JOptionPane.INFORMATION_MESSAGE);
+			}
+		});
        
         //Add components to pop-up menu
-        popup.add(exitItem);
+        popup.add(aboutItem);
         popup.add(settingsItem);
+        popup.addSeparator();
+        popup.add(exitItem);
         trayIcon.setPopupMenu(popup);
         trayIcon.addActionListener(new ActionListener() {
 			@Override
