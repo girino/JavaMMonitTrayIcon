@@ -21,6 +21,7 @@ import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpUriRequest;
 import org.apache.http.client.methods.RequestBuilder;
+import org.apache.http.config.SocketConfig;
 import org.apache.http.impl.client.BasicCookieStore;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
@@ -43,6 +44,13 @@ public class MMonitConsumer {
 		isLoggedIn = false;
 	}
 
+	private CloseableHttpClient createHttpClient() {
+		//return HttpClients.custom().setDefaultCookieStore(cookieStore).build();
+		return HttpClients.custom().setDefaultSocketConfig(
+				// set tcp connection timeout
+					SocketConfig.custom().setSoTimeout(20*1000).build()
+				).setDefaultCookieStore(cookieStore).build();
+	}
 	
 	void logout() throws URISyntaxException, ClientProtocolException, IOException {
 		if (!isLoggedIn) {
@@ -51,7 +59,7 @@ public class MMonitConsumer {
 		
 		URL logoutUrl = new URL(server + pageMap.get("logout"));
 
-		CloseableHttpClient httpclient = HttpClients.custom().setDefaultCookieStore(cookieStore).build();
+		CloseableHttpClient httpclient = createHttpClient();
 		try {
 			HttpGet sessionGet = new HttpGet(logoutUrl.toURI());
 			try (CloseableHttpResponse response = httpclient.execute(sessionGet)) {
@@ -75,7 +83,7 @@ public class MMonitConsumer {
 			URL main = new URL(server + pageMap.get("init"));
 			URL loginUrl = new URL(server + pageMap.get("login"));
 	
-			CloseableHttpClient httpclient = HttpClients.custom().setDefaultCookieStore(cookieStore).build();
+			CloseableHttpClient httpclient = createHttpClient();
 			try {
 				HttpGet sessionGet = new HttpGet(main.toURI());
 				try (CloseableHttpResponse response = httpclient.execute(sessionGet)) {
@@ -109,7 +117,7 @@ public class MMonitConsumer {
 		}
 		isLoggedIn = true;
 	}
-	
+
 	String getStatusListAsString() throws URISyntaxException, IOException {
 		
 		if (!isLoggedIn) {
@@ -118,7 +126,7 @@ public class MMonitConsumer {
 		
 		URL logoutUrl = new URL(server + pageMap.get("api"));
 
-		CloseableHttpClient httpclient = HttpClients.custom().setDefaultCookieStore(cookieStore).build();
+		CloseableHttpClient httpclient = createHttpClient();
 		try {
 			HttpGet sessionGet = new HttpGet(logoutUrl.toURI());
 			try (CloseableHttpResponse response = httpclient.execute(sessionGet)) {
