@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.config.RequestConfig;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpUriRequest;
@@ -28,6 +29,9 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 
 public class MMonitConsumer {
+
+	/** Upper bound for TCP connect, pool wait, and read idle between chunks (ms). */
+	private static final int HTTP_TIMEOUT_MS = 20_000;
 
 	String server;
 	String authType;
@@ -44,12 +48,23 @@ public class MMonitConsumer {
 		isLoggedIn = false;
 	}
 
+	private static RequestConfig defaultRequestConfig() {
+		return RequestConfig.custom()
+				.setConnectTimeout(HTTP_TIMEOUT_MS)
+				.setSocketTimeout(HTTP_TIMEOUT_MS)
+				.setConnectionRequestTimeout(HTTP_TIMEOUT_MS)
+				.build();
+	}
+
 	private CloseableHttpClient createHttpClient() {
-		//return HttpClients.custom().setDefaultCookieStore(cookieStore).build();
-		return HttpClients.custom().setDefaultSocketConfig(
-				// set tcp connection timeout
-					SocketConfig.custom().setSoTimeout(20*1000).build()
-				).setDefaultCookieStore(cookieStore).build();
+		SocketConfig socketConfig = SocketConfig.custom()
+				.setSoTimeout(HTTP_TIMEOUT_MS)
+				.build();
+		return HttpClients.custom()
+				.setDefaultRequestConfig(defaultRequestConfig())
+				.setDefaultSocketConfig(socketConfig)
+				.setDefaultCookieStore(cookieStore)
+				.build();
 	}
 	
 	void logout() throws URISyntaxException, ClientProtocolException, IOException {

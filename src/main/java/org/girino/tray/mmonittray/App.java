@@ -35,10 +35,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 import javax.swing.ImageIcon;
 import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
 import javax.swing.Timer;
 
 import org.apache.http.client.ClientProtocolException;
@@ -59,6 +64,17 @@ public class App
 	final SystemTray tray = SystemTray.getSystemTray();
 	List<Pair<Color, String>> queries;
 	Properties properties;
+
+	/** HTTP polling must not run on the EDT; {@link Timer} fires there. */
+	private final ExecutorService pollExecutor = Executors.newSingleThreadExecutor(r -> {
+		Thread t = new Thread(r, "mmonit-poll");
+		t.setDaemon(true);
+		return t;
+	});
+	/** Incremented on each timer tick; completions from older generations are ignored. */
+	private final AtomicLong pollGeneration = new AtomicLong(0);
+	private final Object pollLock = new Object();
+	private Future<?> currentPoll;
 
 	private static Map<Color, Image> imageCache = new HashMap<Color, Image>();  
 	static Image makeImage(Color status) {
@@ -229,14 +245,19 @@ public class App
         trayIcon.addActionListener(new ActionListener() {
 			@Override
 			public void actionPerformed(ActionEvent e) {
-				if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-				    try {
-						Desktop.getDesktop().browse(new URI(consumer.server));
+				if (!Desktop.isDesktopSupported() || !Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+					return;
+				}
+				final String url = consumer.server;
+				new Thread(() -> {
+					try {
+						Desktop.getDesktop().browse(new URI(url));
 					} catch (IOException | URISyntaxException e1) {
 						e1.printStackTrace();
-						JOptionPane.showMessageDialog(null, "Cannot open URL: " + e1.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+						SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(null,
+								"Cannot open URL: " + e1.getMessage(), "Error", JOptionPane.ERROR_MESSAGE));
 					}
-				}
+				}, "mmonit-browse").start();
 			}
 		});
         
@@ -289,6 +310,13 @@ public class App
     protected void stop() {
     	try {
 	    	timer.stop();
+	    	synchronized (pollLock) {
+	    		if (currentPoll != null) {
+	    			currentPoll.cancel(true);
+	    			currentPoll = null;
+	    		}
+	    	}
+	    	pollExecutor.shutdownNow();
 			try {
 				consumer.logout();
 			} catch (URISyntaxException | IOException e) {
@@ -300,18 +328,41 @@ public class App
 		}
 	}
 
-	private synchronized void consume() {
-		try {
-			if (propertiesLoaded) {
-				Color status = consumer.getWorstStatus(queries, Color.BLUE);
-				trayIcon.setImage(makeImage(status));
-			} else {
-				System.err.println("waiting for properties");
-			}
-		} catch (Exception e) {
-			e.printStackTrace();
-			trayIcon.setImage(makeImage(Color.BLACK)); // network error = black
+	private void consume() {
+		if (!propertiesLoaded) {
+			System.err.println("waiting for properties");
+			return;
 		}
+		final long gen = pollGeneration.incrementAndGet();
+		final MMonitConsumer c = consumer;
+		final List<Pair<Color, String>> q = queries;
+		synchronized (pollLock) {
+			if (currentPoll != null) {
+				currentPoll.cancel(true);
+			}
+			currentPoll = pollExecutor.submit(() -> runPoll(c, q, gen));
+		}
+	}
+
+	private void runPoll(MMonitConsumer c, List<Pair<Color, String>> q, long gen) {
+		try {
+			Color status = c.getWorstStatus(q, Color.BLUE);
+			applyPollResult(gen, status);
+		} catch (Exception e) {
+			if (gen != pollGeneration.get()) {
+				return;
+			}
+			e.printStackTrace();
+			applyPollResult(gen, Color.BLACK);
+		}
+	}
+
+	private void applyPollResult(long gen, Color status) {
+		SwingUtilities.invokeLater(() -> {
+			if (gen == pollGeneration.get()) {
+				trayIcon.setImage(makeImage(status));
+			}
+		});
 	}
 
 	public static void main( String[] args ) throws IOException, URISyntaxException
