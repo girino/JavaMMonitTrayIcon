@@ -1,0 +1,92 @@
+# Build the fat JAR and publish a GitHub Release when a version tag is pushed.
+# Stable: v1.1.0  |  Pre-release: v1.1.0-rc1, v1.1.0-SNAPSHOT, v1.1.0-beta.1, etc.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+
+      - name: Parse tag and pre-release flag
+        id: meta
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          BASE="${VERSION%%+*}"
+          if [[ "$BASE" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Align POM version with tag
+        run: |
+          mvn -B org.codehaus.mojo:versions-maven-plugin:2.17.1:set \
+            -DnewVersion="${{ steps.meta.outputs.version }}" \
+            -DgenerateBackupPoms=false
+
+      - name: Build and test
+        run: mvn -B verify
+
+      - name: Write release notes and instructions
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          cat > release-notes.md << EOF
+          ## JavaMMonitTrayIcon $TAG
+
+          **Maven version:** \`$VERSION\`
+
+          ### Download
+          Attachments: \`mmonit-tray-$VERSION-jar-with-dependencies.jar\` (runnable fat JAR).
+
+          ### Run
+          \`\`\`bash
+          java -jar mmonit-tray-$VERSION-jar-with-dependencies.jar
+          \`\`\`
+
+          Requires **Java 17 or newer** (Temurin or another distribution) with desktop / tray support for your OS.
+
+          ### First run
+          If no config file exists yet, the settings window opens automatically. Configure your server URL, authentication (Basic or form-based), API path, and jq-based color rules. Settings are stored under the user config directory (see the project README).
+
+          ### Configuration file
+          You can also edit \`config.properties\` in the app config folder after the first save.
+
+          ---
+          _Built from tag \`$TAG\` on commit ${{ github.sha }}._
+          EOF
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "${{ steps.meta.outputs.tag }}"
+          body_path: release-notes.md
+          prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.meta.outputs.prerelease != 'true' }}
+          files: target/mmonit-tray-*-jar-with-dependencies.jar
+          fail_on_unmatched_files: true
